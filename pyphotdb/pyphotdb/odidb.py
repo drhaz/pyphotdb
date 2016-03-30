@@ -114,7 +114,7 @@ if __name__ == "__main__":
                 try:
                     odidata = odiQRIngester (line.rstrip(), db);
                 except:
-                    print "Error whle reading file: %s" % (line)
+                    print "Error while reading file: %s" % (line)
                     
         
         db.matchVisits(1.0)  

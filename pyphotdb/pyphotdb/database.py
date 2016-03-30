@@ -266,7 +266,7 @@ class database(object):
             result = None
             data = None
             try:
-                cursor = self.db.cursor(dictionary=True)
+                cursor = self.db.cursor()
                 cursor.execute (sqlCommand, (exposureid,))
             
                 data = cursor.fetchone()
@@ -593,7 +593,7 @@ class database(object):
   
 if __name__ == "__main__":      
     logging.basicConfig(format='%(asctime)s %(message)s')
-    db = database('localhost', 4001, 'stardb', 'stardb', 'stardb_test')
+    db = database('localhost', 3306, 'stardb', 'stardb', 'm33')
     # db.cleanSlateDatabase()
     # sdb.createDatabase()
 
@@ -614,8 +614,12 @@ if __name__ == "__main__":
     # db.getVisits(2)
     
     exposures = db.getExposureIDs('odi_u')   
+    
+    exposure1 = db.getExposure(exposures[0])
     exposure1 = db.getExposure(exposures[0])
     print exposure1.data
+    
+    
     
     
     db.closeDataBase()
