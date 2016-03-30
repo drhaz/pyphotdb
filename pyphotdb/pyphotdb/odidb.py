@@ -13,7 +13,7 @@ import logging
 
 class odiQRIngester(object):
     '''
-    Utility class to ingest ODI quickreduce photometry.
+    Utility class to ingest ODI quickreduce photometry. 
     '''
     log = logging.getLogger('odiQRIngester')
     
@@ -43,10 +43,14 @@ class odiQRIngester(object):
         expObject = database.photExposure(obsid,datetime.now(), filter, airmass, exptime, 0.6)
         expObject.data['photzp'] = photzp
         self.db.addExposure(expObject)
+        try:
+            phottbl = hdulist['CAT.PHOTCALIB'].data
+            #phottbl.columns.info()
+        except:
+            self.log.warn ("Coul dnot find extension CAT.PHOTCALIB, giving up on file %s " % (self.odifilename))
+            return
         
-        phottbl = hdulist['CAT.PHOTCALIB'].data
-        phottbl.columns.info()
-          
+            
         objects = []
         visits = []
         self.log.debug ("Process reference catalog")
@@ -60,10 +64,20 @@ class odiQRIngester(object):
             obj.data['sdss_r'] = np.float (row['SDSS_MAG_R'])
             obj.data['sdss_i'] = np.float (row['SDSS_MAG_I'])
             obj.data['sdss_z'] = np.float (row['SDSS_MAG_Z'])
+            
+            try:
+                odi_x = np.int (row['ODI_X'])
+                odi_y = np.int (row['ODI_Y'])
+                odi_ota = np.int (row['ODI_OTA'])
+            except:
+                odi_x = np.int (objra * 0-1)
+                odi_y = np.int (objra * 0-1)
+                odi_ota = np.int (objra * 0-1)
+                
                   
             # objectid is unknown at this time, set to None
             visit = photVisit(obsid, None, np.float(row['ODI_RA']), np.float(row['ODI_DEC']), 
-                              np.float(row['ODI_MAG_AUTO']), np.float(row['ODI_ERR_AUTO']), np.int (row['ODI_X']), np.int(row['ODI_Y']), np.int(row['ODI_OTA']))
+                              np.float(row['ODI_MAG_AUTO']), np.float(row['ODI_ERR_AUTO']), odi_x, odi_y, odi_ota)
                       
             objects.append (obj)
             visits.append (visit)
@@ -88,20 +102,33 @@ if __name__ == "__main__":
     logging.basicConfig(format='%(asctime)s %(message)s')
 
     # ## prep the database
-    db = database.database('localhost', 4001, 'stardb', 'stardb', 'stardb_test')
-    #db.cleanSlateDatabase()
-    #db.createDatabase()
+    db = database.database('localhost', 3306, 'stardb', 'stardb', 'm33')
+    
+    if 1 == 1:
+        db.cleanSlateDatabase()
+        db.createDatabase()
+
+        with open ("/home/harbeck/git/pyphotdb/pyphotdb/m33.dat", 'r') as inf:
+            for line in inf:
+                print line
+                try:
+                    odidata = odiQRIngester (line.rstrip(), db);
+                except:
+                    print "Error whle reading file: %s" % (line)
+                    
+        
+        db.matchVisits(1.0)  
+   
 
     # ## ingest data
-    odidata = odiQRIngester("/Users/harbeck/Astronomy/odiu/calibrated/20151204T005306.2_Perseus_35_arcmin_west_odi_u.5830/20151204T005306.2_Perseus_35_arcmin_west_odi_u.5830.fits", db)
+    #odidata = odiQRIngester("/home/harbeck/ODI/iraf/M33/calibrated/20141019T040145.0_M33_SW_odi_g.4852/20141019T040145.0_M33_SW_odi_g.4852.fits.fz", db)
    
     #odidata = odiQRIngester("/Users/harbeck/Astronomy/odiu/calibrated/20151204T005306.3_Perseus_35_arcmin_west_odi_u.5830/20151204T005306.3_Perseus_35_arcmin_west_odi_u.5830.fits", db)
     #odidata = odiQRIngester("/Users/harbeck/Astronomy/odiu/calibrated/20151204T005306.4_Perseus_35_arcmin_west_odi_u.5830/20151204T005306.4_Perseus_35_arcmin_west_odi_u.5830.fits", db)
     #odidata = odiQRIngester("/Users/harbeck/Astronomy/odiu/calibrated/20151204T005306.5_Perseus_35_arcmin_west_odi_u.5830/20151204T005306.5_Perseus_35_arcmin_west_odi_u.5830.fits", db)
 
 
-    ###
-    db.matchVisits(1.0)
+    ### db.matchVisits(1.0)
 
     ### clean up
     db.closeDataBase()

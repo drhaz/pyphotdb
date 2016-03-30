@@ -9,7 +9,7 @@ import mysql.connector as mysql
 import math
 import numpy as np
 from datetime import date, datetime, timedelta
-import logging
+import logging 
 from _curses import ERR
 
 
@@ -93,6 +93,17 @@ class photVisit(object):
         cooy = 4200 * otay + self.data['odiy']
         return (coox,cooy)
     
+def collateDataField (array, datafield):
+    retVal = []
+    for obj in array:
+        try:
+            d = obj.data[datafield]
+            retVal.append (d)
+        except:
+            pass
+            
+    return np.asarray(retVal)
+
 
 class database(object):
     '''
@@ -120,8 +131,8 @@ class database(object):
   " `visitid` bigint(20) NOT NULL AUTO_INCREMENT,"
   " `objectid` bigint(20), "  # reference to which object we belong
   " `exposureid` varchar(20) NOT NULL, "
-  " `ra` float NOT NULL,"
-  " `decl` float NOT NULL,"
+  " `ra` double NOT NULL,"
+  " `decl` double NOT NULL,"
   " `mag` float NOT NULL,"
   " `magerr` float NOT NULL,"
   " `class1` float NOT NULL,"
@@ -138,8 +149,8 @@ class database(object):
     
     TABLES['objects'] = ("CREATE TABLE IF NOT EXISTS `objects` ("
      " `objectid` bigint(20) NOT NULL AUTO_INCREMENT,"
-     " `ra` float NOT NULL,"
-     " `decl` float NOT NULL,"
+     " `ra` double NOT NULL,"
+     " `decl` double NOT NULL,"
      " `sdss_u` float,"
      " `sdss_g` float,"
      " `sdss_r` float,"
@@ -166,6 +177,8 @@ class database(object):
         self.dbname = dbname
         
         self.connectDataBase (self.dbhost, self.dbport, self.dbuser, self.dbpass, self.dbname)
+        
+        self.EXPOSUREBUFFER = {}
         
     def __exit__(self):
         self.db.close()
@@ -234,29 +247,41 @@ class database(object):
         except mysql.Error as err:
             self.log.exception("While addExposure:")
     
+    
+    
     def getExposure (self, exposureid):
         '''
         returns a photExposure object for the given exposureid
         '''
-        self.log.info ("Entering getExposure")
-        sqlCommand = ("select * from `exposures` where `exposureid`=%s")
-        result = None
-        data = None
+        exposure = None
+        
         try:
-            cursor = self.db.cursor(dictionary=True)
-            cursor.execute (sqlCommand, (exposureid,))
+            exposure = self.EXPOSUREBUFFER[exposureid]
+            print "buffer success"
             
-            data = cursor.fetchone()
-            self.log.debug(data)
+        except:
+        
+            self.log.info ("Entering getExposure")
+            sqlCommand = ("select * from `exposures` where `exposureid`=%s")
+            result = None
+            data = None
+            try:
+                cursor = self.db.cursor(dictionary=True)
+                cursor.execute (sqlCommand, (exposureid,))
+            
+                data = cursor.fetchone()
+                self.log.debug(data)
            
-        except Exception as err:
-            self.log.exception("While finding exposure by id")
+            except Exception as err:
+                self.log.exception("While finding exposure by id")
             
-        exposure = photExposure()
-        if data != None:
-            exposure.data = data
-        else:
-           self.log.info("No exposure for id %s found" % exposureid)
+            exposure = photExposure()
+            if data != None:
+                exposure.data = data
+                self.EXPOSUREBUFFER[exposureid] = exposure
+            else:
+                self.log.info("No exposure for id %s found" % exposureid)
+        
         return exposure
     
     def getExposureIDs (self, filter):
@@ -361,7 +386,7 @@ class database(object):
         unmatchedQuery = "SELECT `visitid`, `ra`, `decl` FROM `visits` where `objectid` is NULL"
         
         try:
-            unmatchedDB = database('localhost', 4001, 'stardb', 'stardb', 'stardb_test')
+            unmatchedDB = database(self.dbhost, self.dbport, self.dbuser, self.dbpass, self.dbname)
             unmatchedCursor = unmatchedDB.db.cursor()
             unmatchedCursor.execute (unmatchedQuery)
             
@@ -456,7 +481,7 @@ class database(object):
                     newobj += 1
                     newid = self.addObject(obj, cursor)
                     obj.data['objectid'] = newid
-                    print ("Object does not exist. Adding new one and its ID is %d" % newid)
+                    self.log.debug ("Object does not exist. Adding new one and its ID is %d" % newid)
                 else:    
                     existobj += 1
                     obj.data['objectid'] = exist.data['objectid']
@@ -466,8 +491,8 @@ class database(object):
         except mysql.Error as err:
             self.log.exception("During findaddObecjts:")
             
-        print(" New objects    : % 10d" % newobj)
-        print(" Existing objets: % 10d" % existobj)
+        self.log.info (" New objects    : % 10d" % newobj)
+        self.log.info (" Existing objets: % 10d" % existobj)
     
                     
     def addObject (self, newObject, cursor=None):
@@ -533,16 +558,16 @@ class database(object):
         '''
         sqlQuery = ("SELECT  `objectid`,`ra`,`decl`,`sdss_u`, `sdss_g`, `sdss_r`, `sdss_i`, `sdss_z` FROM `objects`"
             " WHERE  ("
-            " ( ABS ( (`ra`   - %(raref)s ) % 360. )  <= %(tol)s )"
+            " ( ABS ( (`ra`   - %(raref)s )  )  <= %(tol)s )"
             " AND"
             " ( ABS ( `decl` - %(declref)s) <= %(tol)s )"
             " )")
         
         
-        data = { 'raref' : ra,
+        data = { "raref" : ra,
                 
-                'tol' : sqr / 3600.,
-                'declref': dec,
+                "tol" : sqr / 3600.,
+                "declref": dec
                  
                 }
         

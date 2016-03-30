@@ -27,7 +27,7 @@ class MyClass(object):
         '''
         
     
-        
+    
         
         
 
