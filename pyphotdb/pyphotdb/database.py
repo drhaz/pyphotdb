@@ -9,6 +9,7 @@ import mysql.connector as mysql
 import math
 import numpy as np
 from datetime import date, datetime, timedelta
+import dateutil.parser
 import logging 
 from _curses import ERR
 
@@ -129,7 +130,7 @@ class database(object):
     
     TABLES['visits'] = ("CREATE TABLE IF NOT EXISTS `visits` ("
   " `visitid` bigint(20) NOT NULL AUTO_INCREMENT,"
-  " `objectid` bigint(20), "  # reference to which object we belong
+  " `objectid` bigint(20) DEFAULT NULL, "  # reference to which object we belong
   " `exposureid` varchar(20) NOT NULL, "
   " `ra` double NOT NULL,"
   " `decl` double NOT NULL,"
@@ -257,7 +258,7 @@ class database(object):
         
         try:
             exposure = self.EXPOSUREBUFFER[exposureid]
-            print "buffer success"
+          #  print "buffer success"
             
         except:
         
@@ -266,7 +267,7 @@ class database(object):
             result = None
             data = None
             try:
-                cursor = self.db.cursor()
+                cursor = self.db.cursor(dictionary=True)
                 cursor.execute (sqlCommand, (exposureid,))
             
                 data = cursor.fetchone()
@@ -317,7 +318,7 @@ class database(object):
         2. 
         '''
         
-        queryCommand = ("select v.visitid,v.ra,v.decl,v.mag,v.magerr,v.ota,v.odix,v.odiy,e.filter,e.exposureid, e.photzp, e.exptime, v.objectid"
+        queryCommand = ("select v.visitid,v.ra,v.decl,v.mag,v.magerr,v.ota,v.odix,v.odiy,e.filter,e.exposureid, e.photzp, e.exptime, v.objectid, e.dateobs"
          " FROM  visits v INNER JOIN exposures e ON e.exposureid = v.exposureid"
          " WHERE (objectid= %(objectid)s) ")
        
@@ -328,7 +329,7 @@ class database(object):
         if exposureids != None:
             e = []
             for id in exposureids:
-                e.append ("\'%s\'" % id)
+                e.append ("\'%s\'" % id.rstrip())
             expIDcond = " AND (v.exposureid IN (%s))" % (','.join(e))
             queryCommand += expIDcond
             
@@ -348,7 +349,7 @@ class database(object):
             cursor.execute (queryCommand, data)
             #print cursor.statement
             
-            for visitid, ra, dec, mag, magerr,ota,odix,odiy, filter, exposureid, photzp, exptime, objid in cursor:        
+            for visitid, ra, dec, mag, magerr,ota,odix,odiy, filter, exposureid, photzp, exptime, objid, dateobs in cursor:        
                 absmag = float(mag) + float(photzp) + 2.5 * math.log10 (exptime)
                 # print mag, photzp, exptime, absmag
                 
@@ -357,6 +358,9 @@ class database(object):
                 visit.data['odix'] = odix
                 visit.data['odiy'] = odiy
                 visit.data['visitid'] = visitid
+                dateobs =  str(dateobs).replace (" ", "T")
+                #print dateobs
+                visit.data['dateobs'] =  dateutil.parser.parse (dateobs)
                 results[str(exposureid)] = visit
                 
                 c += 1
@@ -451,9 +455,10 @@ class database(object):
         
         sqlcommand = ("INSERT INTO `visits`"
                     " ( `exposureid`, `objectid`, `ra`, `decl`, `mag`, `magerr`, `odix`, `odiy`, `ota`)"
-                    " VALUES (%(exposureid)s, %(objectid)s,  %(ra)s, %(decl)s, %(mag)s, %(magerr)s, %(odix)s, %(odiy)s, %(ota)s)")
+                    " VALUES (\"%(exposureid)s\", %(objectid)s,  %(ra)s, %(decl)s, %(mag)s, %(magerr)s, %(odix)s, %(odiy)s, %(ota)s)")
         
         try:
+            #print sqlcommand % photVisit.data
             if cursor == None:
                 cursor = self.db.cursor()
             
@@ -461,7 +466,7 @@ class database(object):
             self.db.commit()
             
         except mysql.Error as err:
-            print (err.msg)
+            print ("While ingesting visit: %s" % err.msg)
             
     
     def findaddObjects (self, objects):
@@ -593,6 +598,8 @@ class database(object):
   
 if __name__ == "__main__":      
     logging.basicConfig(format='%(asctime)s %(message)s')
+   
+    print "mysql connector:", mysql.__version__
     db = database('localhost', 3306, 'stardb', 'stardb', 'm33')
     # db.cleanSlateDatabase()
     # sdb.createDatabase()
@@ -617,6 +624,9 @@ if __name__ == "__main__":
     
     exposure1 = db.getExposure(exposures[0])
     exposure1 = db.getExposure(exposures[0])
+    
+    obj = photObject(0,0,1)
+    db.getVisitsForObject(obj)
     print exposure1.data
     
     

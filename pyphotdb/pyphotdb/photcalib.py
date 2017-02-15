@@ -27,7 +27,22 @@ class MyClass(object):
         '''
         
     
-    
+    def correctZPforObjects(db, objects):
+        '''
+       
+        '''   
+        for object in objects:
+       
+            for k,v in object.visits.iteritems():
+           
+           
+                exposure = db.getExposure(k)
+                zp = exposure.data['photzp']
+                airmass = exposure.data['airmass']
+                fwhm = exposure.data['fwhm']
+                dateobs = exposure.data['dateobs']
+                v.data['mag'] += zp
+                v.data['dateobs'] = dateobs
         
         
 
