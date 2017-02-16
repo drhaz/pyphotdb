@@ -158,8 +158,9 @@ class database(object):
      " `sdss_i` float,"
      " `sdss_z` float,"
      
-     " PRIMARY KEY (`objectid`)"
-     
+     " PRIMARY KEY (`objectid`)",
+     " INDEX (`ra`),"
+     " INDEX (`decl`)"
      " ) ENGINE=InnoDB DEFAULT CHARSET=latin1;")
 
     STATEMENTS = {}
@@ -400,14 +401,14 @@ class database(object):
                     refObj = self.findObject(ra, dec, tolerance=tolerance)
                     newid = None
                     if refObj == None:
-                        print ("Create new photObject") 
+                        #print ("Create new photObject")
                        
                         newid = self.addObject(photObject(ra, dec))
                     else:
                         newid = refObj.data['objectid']
                         
                     
-                    print ("Reference object present %d" % newid)
+                    #print ("Reference object present %d" % newid)
                     updateQuery = ("UPDATE `visits` set `objectid`=%s" 
                                        " WHERE `visitid`=%s;")
                     cursor = self.db.cursor()
