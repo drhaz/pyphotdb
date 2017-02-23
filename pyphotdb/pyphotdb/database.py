@@ -16,6 +16,9 @@ from _curses import ERR
 
 
 
+
+
+
 class photObject (object):
     '''
     Structure to hold a reference object that can contain sdss photoemtry.
@@ -124,8 +127,8 @@ class database(object):
                            " `dateobs` datetime,"
                            " `photzp` float,"
                            " PRIMARY KEY (`exposureid`)"
-                           ") ENGINE=InnoDB DEFAULT CHARSET=latin1;"
-                           )
+                           ") ENGINE=InnoDB DEFAULT CHARSET=latin1;")
+
     
     
     TABLES['visits'] = ("CREATE TABLE IF NOT EXISTS `visits` ("
@@ -148,7 +151,7 @@ class database(object):
   
   " ) ENGINE=InnoDB DEFAULT CHARSET=latin1;")
     
-    TABLES['objects'] = ("CREATE TABLE IF NOT EXISTS `objects` ("
+    TABLES['objects'] = ( "CREATE TABLE IF NOT EXISTS `objects` ("
      " `objectid` bigint(20) NOT NULL AUTO_INCREMENT,"
      " `ra` double NOT NULL,"
      " `decl` double NOT NULL,"
@@ -158,7 +161,7 @@ class database(object):
      " `sdss_i` float,"
      " `sdss_z` float,"
      
-     " PRIMARY KEY (`objectid`)",
+     " PRIMARY KEY (`objectid`),"
      " INDEX (`ra`),"
      " INDEX (`decl`)"
      " ) ENGINE=InnoDB DEFAULT CHARSET=latin1;")
@@ -219,9 +222,10 @@ class database(object):
         try:
             cur = self.db.cursor()
             for name, sql  in self.TABLES.iteritems():
-                self.log.info ("Creating table %s" % name)
-                self.log.debug ("Command is:\n%s\n" % sql)
+                print ("Creating table %s with command %s" % (name,str(sql)))
+
                 cur.execute (sql)
+
                     
         except mysql.Error as err:
             if err.errno == mysql.errorcode.ER_TABLE_EXISTS_ERROR:
@@ -268,6 +272,7 @@ class database(object):
             result = None
             data = None
             try:
+
                 cursor = self.db.cursor(dictionary=True)
                 cursor.execute (sqlCommand, (exposureid,))
             
@@ -306,8 +311,8 @@ class database(object):
         
     def getVisitsForObject (self, object, minVisits=0, exposureids = None):
         
-        object.visits = self.getVisits(object.data['objectid'], minVisits = minVisits, exposureids = exposureids) 
-        
+        object.visits = self.getVisits(object.data['objectid'], minVisits = minVisits, exposureids = exposureids)
+        #print object.visits
         
     
     def getVisits (self, objectid, minVisits=0, exposureids = None, instrument=None, filter=None):
@@ -352,7 +357,7 @@ class database(object):
             
             for visitid, ra, dec, mag, magerr,ota,odix,odiy, filter, exposureid, photzp, exptime, objid, dateobs in cursor:        
                 absmag = float(mag) + float(photzp) + 2.5 * math.log10 (exptime)
-                # print mag, photzp, exptime, absmag
+                #print visitid, mag, photzp, exptime, absmag
                 
                 visit = photVisit(exposureid, objid, ra, dec, absmag, magerr)
                 visit.data['ota'] = ota
@@ -377,8 +382,54 @@ class database(object):
         if c >= minVisits:
             return results
         return {}
-    
-    def matchVisits (self, tolerance=1.0):
+
+
+    def getVisitsByExpID (self, exposureid):
+
+        queryCommand = ("select v.visitid,v.ra,v.decl,v.mag,v.magerr,v.ota,v.odix,v.odiy,e.filter,e.exposureid, e.photzp, e.exptime, v.objectid, e.dateobs"
+                        " FROM  visits v INNER JOIN exposures e ON e.exposureid = v.exposureid"
+                        " WHERE (e.exposureid= %(exposureid)s) ")
+        results = []
+
+        try:
+            cursor = self.db.cursor()
+            data = {
+                'exposureid' : exposureid
+            }
+
+            cursor.execute (queryCommand, data)
+            #print cursor.statement
+
+            for visitid, ra, dec, mag, magerr,ota,odix,odiy, filter, exposureid, photzp, exptime, objid, dateobs in cursor:
+                absmag = float(mag) + float(photzp) + 2.5 * math.log10 (exptime)
+                #print visitid, mag, photzp, exptime, absmag
+
+                visit = photVisit(exposureid, objid, ra, dec, absmag, magerr)
+                visit.data['ota'] = ota
+                visit.data['odix'] = odix
+                visit.data['odiy'] = odiy
+                visit.data['visitid'] = visitid
+                dateobs =  str(dateobs).replace (" ", "T")
+                #print dateobs
+                visit.data['dateobs'] =  dateutil.parser.parse (dateobs)
+                results.append ( visit)
+
+
+        except mysql.Error as err:
+            self.log.exception("During getVisits: ")
+
+        finally:
+            pass
+            # print("Find visits for objectid %d returned %d entries (should be %d)" % (objectid, c, count))
+
+
+        return results
+
+
+
+
+    def matchVisits (self, tolerance=0.5):
+        import time
         ''' 
             selects all unmatched visits and finds a nearest matched reference object within the tolerance.
             If a reference object is not found, a new reference object will be created out of the visit.
@@ -388,35 +439,75 @@ class database(object):
         '''
         
         # ## query all unmatched visits
-        unmatchedQuery = "SELECT `visitid`, `ra`, `decl` FROM `visits` where `objectid` is NULL"
+        unmatchedQuery = "SELECT `visitid`, `ra`, `decl` FROM `visits` where `objectid` is NULL LIMIT 5000 "
         
         try:
+
+
+
+
             unmatchedDB = database(self.dbhost, self.dbport, self.dbuser, self.dbpass, self.dbname)
+
             unmatchedCursor = unmatchedDB.db.cursor()
             unmatchedCursor.execute (unmatchedQuery)
-            
-            
-            for (visitid, ra, dec) in unmatchedCursor:
-                    # ## find a viable reference object
+            results = unmatchedCursor.fetchall()
+
+            while len(results) > 0:
+                start = time.time()
+                print "Matching next set of %s stars." % len(results)
+                matched = 0
+                newobjects = 0
+                newid = -1
+
+                for (visitid, ra, dec) in results:
+
+                    #print visitid,ra,dec
+                    # find a viable reference object
                     refObj = self.findObject(ra, dec, tolerance=tolerance)
-                    newid = None
-                    if refObj == None:
+
+                    if refObj is None:
                         #print ("Create new photObject")
-                       
                         newid = self.addObject(photObject(ra, dec))
+                        newobjects += 1
+
                     else:
+
                         newid = refObj.data['objectid']
-                        
-                    
-                    #print ("Reference object present %d" % newid)
-                    updateQuery = ("UPDATE `visits` set `objectid`=%s" 
+                        matched += 1
+
+
+                    if newid >=0:
+
+                        updateQuery = ("UPDATE `visits` set `objectid`=%s"
                                        " WHERE `visitid`=%s;")
-                    cursor = self.db.cursor()
-                    cursor.execute (updateQuery, (newid, visitid))
-                        
-            self.db.commit()
+
+                        cursor = self.db.cursor()
+                        cursor.execute (updateQuery, (newid, visitid))
+                        self.db.commit()
+
+
+
+
+
+                # closing and reopening database is requried here to avoid use of buffered values. awkward!
+                unmatchedCursor.close()
+                unmatchedDB.db.commit()
+                unmatchedDB.closeDataBase()
+                unmatchedDB = database(self.dbhost, self.dbport, self.dbuser, self.dbpass, self.dbname)
+                unmatchedCursor = unmatchedDB.db.cursor()
+                unmatchedCursor.execute (unmatchedQuery)
+                results = unmatchedCursor.fetchall()
+
+                end = time.time()
+                print " Elapsed time for stars matching (% 4d / % 4d)plus next %d star search: %5f seconds" % (matched, newobjects,len(results),(end - start))
+
+
+
+            unmatchedCursor.close()
+            unmatchedDB.closeDataBase()
+
         except mysql.Error as err:
-            print ("Error: %s" % err)
+            print ("While matching visits: %s" % err)
         
         
        
@@ -443,7 +534,7 @@ class database(object):
             cursor.close()
             
         except mysql.Error as err:
-            print (err)
+            print ("While ingesting visits: %s" %  err)
         
     def addVisit (self, photVisit, cursor=None):
         '''
@@ -456,7 +547,7 @@ class database(object):
         
         sqlcommand = ("INSERT INTO `visits`"
                     " ( `exposureid`, `objectid`, `ra`, `decl`, `mag`, `magerr`, `odix`, `odiy`, `ota`)"
-                    " VALUES (\"%(exposureid)s\", %(objectid)s,  %(ra)s, %(decl)s, %(mag)s, %(magerr)s, %(odix)s, %(odiy)s, %(ota)s)")
+                    " VALUES (%(exposureid)s, %(objectid)s,  %(ra)s, %(decl)s, %(mag)s, %(magerr)s, %(odix)s, %(odiy)s, %(ota)s)")
         
         try:
             #print sqlcommand % photVisit.data
@@ -548,12 +639,28 @@ class database(object):
         ret = None
         tolerance /= 3600.
         tolerance *= tolerance  # skip the sqrt
-        results = self.findObjects (ra, dec, cursor=cursor)
+        results = self.findObjects (ra, dec, sqr = 3, cursor=cursor)
+
+        if len(results) == 0:
+            return None
+
+        # Now, let us fund the closest object.
+        distances = []
+        ids = []
+
         for obj in results:
             d = self.distance2(ra, dec, obj)
-            if (d < tolerance):
-                ret = obj
-                tolerance = d
+            distances.append (d)
+            ids.append (obj.data['objectid'])
+
+        minIdx = np.argmin (distances)
+
+        if (distances[minIdx] < tolerance):
+                ret = results [minIdx]
+                if (ret.data['objectid'] != ids[minIdx]):
+                    print "Missmatch in finding enarest candidate! - somethig wrong!"
+                    return None
+
                 
         return ret
 
@@ -596,7 +703,42 @@ class database(object):
             self.log.exception("While finding photObjects:")
         return results
   
-  
+    def findObjectsByID (self, minid, maxid, cursor = None):
+        sqlQuery = ("SELECT  `objectid`,`ra`,`decl`,`sdss_u`, `sdss_g`, `sdss_r`, `sdss_i`, `sdss_z` FROM `objects`"
+                    " WHERE  ("
+                    " ( objectid >=  %(minid)s )"
+                    " AND"
+                    " ( objectid <=%(maxid)s)"
+                    " )")
+
+
+        data = { "minid" : minid,
+
+                 "maxid" :maxid
+
+                 }
+
+        results = []
+        try:
+            if cursor == None:
+                cursor = self.db.cursor()
+
+            cursor.execute (sqlQuery, data)
+            for (objectid, ra, dec, u,g,r,i,z) in cursor:
+                obj = photObject(ra, dec, objectid)
+                obj.data['sdss_u'] = u
+                obj.data['sdss_g'] = g
+                obj.data['sdss_r'] = r
+                obj.data['sdss_i'] = i
+                obj.data['sdss_z'] = z
+                results.append (obj)
+
+        except mysql.Error as err:
+            self.log.exception("While finding photObjects:")
+        return results
+
+
+
 if __name__ == "__main__":      
     logging.basicConfig(format='%(asctime)s %(message)s')
    
@@ -615,21 +757,21 @@ if __name__ == "__main__":
     # db.addVisit(photVisit (exp.data['exposureid'], 1.1, 2.2, 24, 0.1))
     # db.addVisit(photVisit (exp.data['exposureid'], 1.2, 2.3, 24, 0.1))
     
-    
-    # db.matchVisits()
+
+    c = db.db.cursor()
+
+    ## clean objet matched already in dtabase.
+    #print ("clearnign database")
+    #c.execute ("UPDATE `visits` SET `objectid`=NULL WHERE 1")
+    #c.execute ("TRUNCATE objects")
+
+    #db.db.commit()
+    db.matchVisits(0.25)
     
     # db.getVisits(1)
     # db.getVisits(2)
     
-    exposures = db.getExposureIDs('odi_u')   
-    
-    exposure1 = db.getExposure(exposures[0])
-    exposure1 = db.getExposure(exposures[0])
-    
-    obj = photObject(0,0,1)
-    db.getVisitsForObject(obj)
-    print exposure1.data
-    
+
     
     
     
